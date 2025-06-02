@@ -1,0 +1,56 @@
+@njit
+def project_onto_sine_modes(w_data, pressure_levels, level_axis):
+    """
+    Project vertical motion data along the full vertical (pressure) dimension 
+    onto two predefined sine-based vertical modes and compute the fraction 
+    of variance explained by each mode.
+
+    Parameters
+    ----------
+    w_data : np.ndarray
+        Vertical velocity data. Must include a vertical level dimension 
+        (e.g., shape could be (time, level, lat, lon)).
+    pressure_levels : np.ndarray
+        1D array of pressure levels in hPa, shape (n_level,). Must correspond 
+        to the axis in w_data specified by level_axis.
+    level_axis : int
+        The axis in w_data that corresponds to the vertical pressure levels.
+
+    Returns
+    -------
+    a : np.ndarray
+        Projection coefficient onto the first sine mode: -sin(pi * x), 
+        where x is the normalized pressure coordinate. Same shape as w_data 
+        with the level axis removed.
+    b : np.ndarray
+        Projection coefficient onto the second sine mode: -sin(2pi * x), 
+        same shape as `a`.
+    var_a : np.ndarray
+        Fraction (between 0 and 1) of total vertical variance in w_data 
+        explained by mode 1, same shape as `a`.
+    var_b : np.ndarray
+        Fraction (between 0 and 1) of total vertical variance in w_data 
+        explained by mode 2, same shape as `b`.
+    """
+    w_data = w_data.astype(np.float32)
+    pressure_levels = pressure_levels.astype(np.float32)
+    htop = np.min(pressure_levels)
+    hbot = np.max(pressure_levels)
+    x = (pressure_levels - htop) / (hbot - htop)
+    y1 = -np.sin(np.pi * x).astype(np.float32)
+    y2 = -np.sin(2 * np.pi * x).astype(np.float32)
+    delta_p = np.empty_like(pressure_levels)
+    delta_p[1:-1] = (pressure_levels[:-2] - pressure_levels[2:]) / 2
+    delta_p[0] = pressure_levels[0] - pressure_levels[1]
+    delta_p[-1] = pressure_levels[-2] - pressure_levels[-1]
+    delta_p = delta_p.astype(np.float32)
+    y1_weighted = y1 * delta_p
+    y2_weighted = y2 * delta_p
+    y1_norm2 = np.sum(y1 ** 2 * delta_p, dtype=np.float32)
+    y2_norm2 = np.sum(y2 ** 2 * delta_p, dtype=np.float32)
+    a = np.sum(w_data * y1_weighted, axis=level_axis, dtype=np.float32) / y1_norm2
+    b = np.sum(w_data * y2_weighted, axis=level_axis, dtype=np.float32) / y2_norm2
+    total_var = np.sum(w_data ** 2 * delta_p, axis=level_axis, dtype=np.float32)
+    var_a = (a ** 2) * y1_norm2 / total_var
+    var_b = (b ** 2) * y2_norm2 / total_var
+    return a, b, var_a, var_b
